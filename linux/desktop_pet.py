@@ -26,9 +26,13 @@ ROWS = 11
 FRAME_MS = 140
 FRAME_COUNTS = {0: 6, 1: 8, 2: 8, 3: 4, 4: 5, 5: 8, 6: 6, 7: 6, 8: 6}
 IDLE_ROW = 0
-HORIZONTAL_MOVE_ROW = 1
-VERTICAL_MOVE_ROW = 2
+# Use the original movement row for every drag direction. Vertical dragging
+# deliberately does not switch to a separate animation.
+MOVE_ROW = 1
 HUG_ROW = 3
+SLEEP_COLUMNS = 6
+SLEEP_ROWS = 2
+SLEEP_FRAME_COUNT = SLEEP_COLUMNS * SLEEP_ROWS
 # These are deliberately cycled on ordinary clicks so that every supplied
 # expression/action is available without hidden keyboard-only bindings.
 CLICK_ACTION_ROWS = (4, 5, 6, 7, 8)
@@ -78,22 +82,27 @@ class DesktopPet(Gtk.Window):
         self.frame_height = self.idle_sheet.get_height() // ROWS
         self.output_width = round(self.frame_width * scale)
         self.output_height = round(self.frame_height * scale)
-        self.content_width = self.frame_width - 10
-        self.content_height = 150
         self.idle_frame = 0
         self.motion_frame = 0
-        self.motion_row = HORIZONTAL_MOVE_ROW
+        self.motion_row = MOVE_ROW
         self.mirror_motion = False
         self.click_action_index = 0
         self.look_index = 0
         self.dragging = False
         self.did_drag = False
         self.activity_running = False
-        # Keep the supplied sleeping animation as an optional interaction. It
-        # is never used for idle, which always comes from spritesheet.png.
-        self.sleep_animation = GdkPixbuf.PixbufAnimation.new_from_file(str(pet_dir / "8.webp"))
-        self.sleep_animation_iter = None
+        self.activity_source = None
+        self.look_source = None
+        # 8.png is a 6x2 sleeping spritesheet, not a standalone animated file.
+        sleep_path = pet_dir / "8.png"
+        self.sleep_sheet = GdkPixbuf.Pixbuf.new_from_file(str(sleep_path))
+        if self.sleep_sheet.get_width() % SLEEP_COLUMNS or self.sleep_sheet.get_height() % SLEEP_ROWS:
+            raise ValueError("Expected 8.png to be a 6 by 2 sleep spritesheet")
+        self.sleep_frame_width = self.sleep_sheet.get_width() // SLEEP_COLUMNS
+        self.sleep_frame_height = self.sleep_sheet.get_height() // SLEEP_ROWS
+        self.sleep_frame = 0
         self.sleep_running = False
+        self.sleep_source = None
         self.drag_x = 0
         self.drag_y = 0
 
@@ -169,7 +178,7 @@ class DesktopPet(Gtk.Window):
             self.frame_width,
             self.frame_height,
         )
-        self._set_normalized_frame(source)
+        self._set_exact_frame(source)
 
     def _advance_idle(self) -> bool:
         if not self.dragging and not self.activity_running:
@@ -187,12 +196,10 @@ class DesktopPet(Gtk.Window):
         )
         if self.mirror_motion:
             source = source.flip(True)
-        if self.motion_row == HUG_ROW:
-            # The hug cells already fill the canonical 192×208 frame. Cropping
-            # their alpha bounds made the characters look vertically squashed.
-            self._set_exact_frame(source)
-        else:
-            self._set_normalized_frame(source)
+        # Every cell is already a fixed 192x208 canvas. Rendering it intact
+        # avoids alpha-bound cropping, which caused afterimages and apparent
+        # scale changes between movement frames.
+        self._set_exact_frame(source)
 
     def _set_exact_frame(self, source: GdkPixbuf.Pixbuf) -> None:
         self.image.set_from_pixbuf(
@@ -200,36 +207,12 @@ class DesktopPet(Gtk.Window):
         )
         self.queue_draw()
 
-    def _set_normalized_frame(self, source: GdkPixbuf.Pixbuf) -> None:
-        """Draw every action at one fixed baseline without distorting it.
-
-        Artist-provided action cells have slightly different transparent bounds.
-        Rendering cells directly makes the character appear to pulse. We trim
-        the alpha bounds, fit them *inside* one target rectangle while keeping
-        their aspect ratio, and composite onto a fixed transparent canvas.
-        """
-        pixels = source.get_pixels()
-        channels = source.get_n_channels()
-        alpha_index = channels - 1 if source.get_has_alpha() else None
-        rowstride = source.get_rowstride()
-        min_x, min_y = source.get_width(), source.get_height()
-        max_x = max_y = -1
-        if alpha_index is None:
-            min_x, min_y, max_x, max_y = 0, 0, source.get_width() - 1, source.get_height() - 1
-        else:
-            for y in range(source.get_height()):
-                offset = y * rowstride
-                for x in range(source.get_width()):
-                    if pixels[offset + x * channels + alpha_index] > 0:
-                        min_x, min_y = min(min_x, x), min(min_y, y)
-                        max_x, max_y = max(max_x, x), max(max_y, y)
-        if max_x < min_x or max_y < min_y:
-            return
-        cropped = GdkPixbuf.Pixbuf.new_subpixbuf(source, min_x, min_y, max_x - min_x + 1, max_y - min_y + 1)
-        fit_scale = min(self.content_width / cropped.get_width(), self.content_height / cropped.get_height())
-        fitted_width = max(1, round(cropped.get_width() * fit_scale))
-        fitted_height = max(1, round(cropped.get_height() * fit_scale))
-        fitted = cropped.scale_simple(fitted_width, fitted_height, GdkPixbuf.InterpType.BILINEAR)
+    def _set_contained_frame(self, source: GdkPixbuf.Pixbuf) -> None:
+        """Fit a differently sized sprite cell onto the normal fixed canvas."""
+        fit_scale = min(self.frame_width / source.get_width(), self.frame_height / source.get_height())
+        fitted_width = max(1, round(source.get_width() * fit_scale))
+        fitted_height = max(1, round(source.get_height() * fit_scale))
+        fitted = source.scale_simple(fitted_width, fitted_height, GdkPixbuf.InterpType.BILINEAR)
         canvas = GdkPixbuf.Pixbuf.new(GdkPixbuf.Colorspace.RGB, True, 8, self.frame_width, self.frame_height)
         canvas.fill(0)
         fitted.copy_area(
@@ -243,9 +226,6 @@ class DesktopPet(Gtk.Window):
         )
         scaled = canvas.scale_simple(self.output_width, self.output_height, GdkPixbuf.InterpType.BILINEAR)
         self.image.set_from_pixbuf(scaled)
-        # Invalidate the complete fixed-size canvas. Clearing Gtk.Image before
-        # each replacement briefly gave it a 0×0 allocation, the source of the
-        # apparent zoom/pulse in non-running actions.
         self.queue_draw()
 
     def _advance_motion(self) -> bool:
@@ -259,42 +239,65 @@ class DesktopPet(Gtk.Window):
         self.motion_frame += 1
         if self.motion_frame >= FRAME_COUNTS[self.motion_row]:
             self.activity_running = False
+            self.activity_source = None
             self._render_idle()
             return False
         self._render_motion()
         return True
 
     def _start_activity(self, row: int) -> None:
-        if self.dragging or self.activity_running:
+        if self.dragging or self.activity_running or self.sleep_running:
             return
         self.motion_row = row
         self.mirror_motion = False
         self.motion_frame = 0
         self.activity_running = True
         self._render_motion()
-        GLib.timeout_add(FRAME_MS, self._advance_activity)
+        self.activity_source = GLib.timeout_add(FRAME_MS, self._advance_activity)
 
     def _start_sleep(self) -> None:
-        """Play the supplied 8.webp sleep animation once, then resume smiling idle."""
-        if self.dragging or self.activity_running:
+        """Play all 12 frames in the 8.png sleep spritesheet once."""
+        if self.dragging:
             return
+        if self.activity_source is not None:
+            GLib.source_remove(self.activity_source)
+            self.activity_source = None
+        if self.look_source is not None:
+            GLib.source_remove(self.look_source)
+            self.look_source = None
+        if self.sleep_source is not None:
+            GLib.source_remove(self.sleep_source)
+            self.sleep_source = None
         self.activity_running = True
         self.sleep_running = True
-        self.sleep_animation_iter = self.sleep_animation.get_iter(None)
-        self._set_normalized_frame(self.sleep_animation_iter.get_pixbuf())
-        GLib.timeout_add(50, self._advance_sleep)
-        GLib.timeout_add(2600, self._finish_sleep)
+        self.sleep_frame = 0
+        self._render_sleep()
+        self.sleep_source = GLib.timeout_add(FRAME_MS, self._advance_sleep)
+
+    def _render_sleep(self) -> None:
+        column = self.sleep_frame % SLEEP_COLUMNS
+        row = self.sleep_frame // SLEEP_COLUMNS
+        source = GdkPixbuf.Pixbuf.new_subpixbuf(
+            self.sleep_sheet,
+            column * self.sleep_frame_width,
+            row * self.sleep_frame_height,
+            self.sleep_frame_width,
+            self.sleep_frame_height,
+        )
+        self._set_contained_frame(source)
 
     def _advance_sleep(self) -> bool:
-        if not self.sleep_running or self.sleep_animation_iter is None:
+        if not self.sleep_running:
             return False
-        self.sleep_animation_iter.advance(None)
-        self._set_normalized_frame(self.sleep_animation_iter.get_pixbuf())
+        self.sleep_frame += 1
+        if self.sleep_frame >= SLEEP_FRAME_COUNT:
+            return self._finish_sleep()
+        self._render_sleep()
         return True
 
     def _finish_sleep(self) -> bool:
         self.sleep_running = False
-        self.sleep_animation_iter = None
+        self.sleep_source = None
         self.activity_running = False
         self._render_idle()
         return False
@@ -317,9 +320,10 @@ class DesktopPet(Gtk.Window):
                 self.frame_height,
             )
         )
-        GLib.timeout_add(900, self._finish_look)
+        self.look_source = GLib.timeout_add(900, self._finish_look)
 
     def _finish_look(self) -> bool:
+        self.look_source = None
         self.activity_running = False
         self._render_idle()
         return False
@@ -334,15 +338,17 @@ class DesktopPet(Gtk.Window):
         Returns:
             True，表示事件已处理
         """
-        if event.button == 1 and event.state & Gdk.ModifierType.SHIFT_MASK:
-            self._start_sleep()
-        elif event.button == 1 and not self.activity_running:
+        if event.button == 1 and not self.activity_running:
             self.drag_x, self.drag_y = event.x_root, event.y_root
             self.dragging = True
             self.did_drag = False
         elif event.button == 3 and not self.dragging:
-            # Right-click is always the four-frame hug from the PNG sheet.
-            self._start_activity(HUG_ROW)
+            if event.type == Gdk.EventType._2BUTTON_PRESS:
+                self._start_sleep()
+            else:
+                # Keep the single-click hug; a consecutive second right-click
+                # interrupts it and starts the sleep spritesheet action.
+                self._start_activity(HUG_ROW)
         elif event.button == 2 and event.state & Gdk.ModifierType.SHIFT_MASK:
             self._start_look()
         elif event.button == 2 and not self.dragging:
@@ -387,13 +393,8 @@ class DesktopPet(Gtk.Window):
                     self.activity_running = False
                     self.motion_frame = 0
                     GLib.timeout_add(FRAME_MS, self._advance_motion)
-                if abs(delta_x) >= abs(delta_y):
-                    self.motion_row = HORIZONTAL_MOVE_ROW
-                    self.mirror_motion = delta_x < 0
-                else:
-                    # Row 2 is the dedicated vertical-motion animation.
-                    self.motion_row = VERTICAL_MOVE_ROW
-                    self.mirror_motion = False
+                self.motion_row = MOVE_ROW
+                self.mirror_motion = abs(delta_x) >= abs(delta_y) and delta_x < 0
                 self._render_motion()
             self.move(round(x + delta_x), round(y + delta_y))
             self.drag_x, self.drag_y = event.x_root, event.y_root

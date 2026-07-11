@@ -20,10 +20,29 @@ $sheet.CacheOption = [Windows.Media.Imaging.BitmapCacheOption]::OnLoad
 $sheet.EndInit()
 $sheet.Freeze()
 
+$sleepPath = Join-Path $petRoot '8.png'
+if (-not (Test-Path -LiteralPath $sleepPath)) { throw "Sleep spritesheet not found: $sleepPath" }
+$sleepSource = [Windows.Media.Imaging.BitmapImage]::new()
+$sleepSource.BeginInit()
+$sleepSource.UriSource = [Uri]$sleepPath
+$sleepSource.CacheOption = [Windows.Media.Imaging.BitmapCacheOption]::OnLoad
+$sleepSource.EndInit()
+
+$sleepSource.Freeze()
+$sleepSheet = $sleepSource
+
 $columns = 8
 $rows = 11
 $frameWidth = [int]($sheet.PixelWidth / $columns)
 $frameHeight = [int]($sheet.PixelHeight / $rows)
+$sleepColumns = 6
+$sleepRows = 2
+if ($sleepSheet.PixelWidth % $sleepColumns -ne 0 -or $sleepSheet.PixelHeight % $sleepRows -ne 0) {
+    throw 'Expected 8.png to be a 6 by 2 sleep spritesheet'
+}
+$sleepFrameWidth = [int]($sleepSheet.PixelWidth / $sleepColumns)
+$sleepFrameHeight = [int]($sleepSheet.PixelHeight / $sleepRows)
+$sleepFrameCount = $sleepColumns * $sleepRows
 $width = [Math]::Round($frameWidth * $Scale)
 $height = [Math]::Round($frameHeight * $Scale)
 
@@ -41,6 +60,9 @@ $window.ResizeMode = [Windows.ResizeMode]::NoResize
 $image = [Windows.Controls.Image]::new()
 $image.Width = $width
 $image.Height = $height
+$image.Stretch = [Windows.Media.Stretch]::Uniform
+$image.HorizontalAlignment = [Windows.HorizontalAlignment]::Center
+$image.VerticalAlignment = [Windows.VerticalAlignment]::Center
 $window.Content = $image
 
 $frameCounts = @(6, 8, 8, 4, 5, 8, 6, 6, 6)
@@ -48,6 +70,9 @@ $clickActionRows = @(4, 5, 6, 7, 8)
 $state = [PSCustomObject]@{
     Frame = 0
     ActionRow = 0
+    ActionRunning = $false
+    SleepRunning = $false
+    SleepFrame = 0
     ClickActionIndex = 0
     Dragging = $false
     DidDrag = $false
@@ -60,14 +85,30 @@ $renderFrame = {
     $crop.Freeze()
     $image.Source = $crop
 }
+$renderSleepFrame = {
+    $column = $state.SleepFrame % $sleepColumns
+    $row = [int]($state.SleepFrame / $sleepColumns)
+    $rect = [Windows.Int32Rect]::new($column * $sleepFrameWidth, $row * $sleepFrameHeight, $sleepFrameWidth, $sleepFrameHeight)
+    $crop = [Windows.Media.Imaging.CroppedBitmap]::new($sleepSheet, $rect)
+    $crop.Freeze()
+    $image.Source = $crop
+}
 & $renderFrame
 
 $startAction = {
     param([int]$row)
-    if ($state.Dragging) { return }
+    if ($state.Dragging -or $state.SleepRunning -or $state.ActionRunning) { return }
     $state.ActionRow = $row
     $state.Frame = 0
+    $state.ActionRunning = $true
     & $renderFrame
+}
+$startSleep = {
+    if ($state.Dragging) { return }
+    $state.ActionRunning = $false
+    $state.SleepRunning = $true
+    $state.SleepFrame = 0
+    & $renderSleepFrame
 }
 
 # Animate by default: row 0 is the smiling idle loop.  The -Animate switch is
@@ -75,11 +116,24 @@ $startAction = {
 $timer = [Windows.Threading.DispatcherTimer]::new()
 $timer.Interval = [TimeSpan]::FromMilliseconds(140)
 $timer.Add_Tick({
+    if ($state.SleepRunning) {
+        $state.SleepFrame++
+        if ($state.SleepFrame -ge $sleepFrameCount) {
+            $state.SleepRunning = $false
+            $state.ActionRow = 0
+            $state.Frame = 0
+            & $renderFrame
+        } else {
+            & $renderSleepFrame
+        }
+        return
+    }
     $state.Frame++
     if ($state.Frame -ge $frameCounts[$state.ActionRow]) {
         $state.Frame = 0
-        if (-not $state.Dragging -and $state.ActionRow -ne 0) {
+        if (-not $state.Dragging -and $state.ActionRunning) {
             $state.ActionRow = 0
+            $state.ActionRunning = $false
         }
     }
     & $renderFrame
@@ -89,7 +143,7 @@ $window.Add_Closed({ $timer.Stop() })
 
 $window.Add_MouseLeftButtonDown({
     param($sender, $event)
-    if ($state.ActionRow -ne 0) { return }
+    if ($state.ActionRunning -or $state.SleepRunning) { return }
     $point = $window.PointToScreen($event.GetPosition($window))
     $state.LastX = $point.X
     $state.LastY = $point.Y
@@ -106,8 +160,9 @@ $window.Add_MouseMove({
     $deltaY = $point.Y - $state.LastY
     if ([Math]::Abs($deltaX) + [Math]::Abs($deltaY) -ge 4) {
         $state.DidDrag = $true
-        # Row 1 is horizontal movement; row 2 is the dedicated vertical motion.
-        $state.ActionRow = if ([Math]::Abs($deltaX) -ge [Math]::Abs($deltaY)) { 1 } else { 2 }
+        # Use the original movement row for every drag direction; vertical
+        # dragging deliberately has no separate animation.
+        $state.ActionRow = 1
         $state.Frame = 0
     }
     $window.Left += $deltaX
@@ -132,8 +187,12 @@ $window.Add_MouseLeftButtonUp({
 })
 $window.Add_MouseRightButtonDown({
     param($sender, $event)
-    # The four-frame hug is row 3 of spritesheet.png.
-    & $startAction 3
+    if ($event.ClickCount -ge 2) {
+        & $startSleep
+    } else {
+        # Keep the single-click hug. The second right-click starts sleep.
+        & $startAction 3
+    }
     $event.Handled = $true
 })
 $window.Add_MouseDown({
