@@ -11,6 +11,6 @@ Type=Application
 Name=Codex Pet
 Comment=显示 BubuYier Codex 桌面宠物
 Exec=__CODEX_PET_ROOT__/linux/codex-desktop-pet
-Icon=__CODEX_PET_ROOT__/pets/bubuyier-ref/codex-v2/spritesheet.png
+Icon=__CODEX_PET_ROOT__/bubuyier-ref/spritesheet.png
 Terminal=false
 Categories=Utility;Development;

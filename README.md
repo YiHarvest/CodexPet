@@ -91,10 +91,9 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\windows\codex-with-pet.ps1
 
 ## 目录
 
-- `pets/bubuyier-ref/codex-v2/`：Codex 安装包（`pet.json` 与 PNG 精灵图）
-- `pets/bubuyier-ref/source/`：原始 WebP 精灵图；Linux 拖动时的动作动画使用该资源
-- `pets/bubuyier-ref/states/`：Codex 工作状态动画（思考、工作、等待、完成）
-- `bubuyier-ref`：兼容旧路径的符号链接，指向 `pets/bubuyier-ref/codex-v2/`，不重复存放图片
+- `bubuyier-ref/`：唯一的运行时宠物资源目录；所有动作均来自其中的 `spritesheet.png`
+- `pets/bubuyier-ref/codex-v2/`：`bubuyier-ref/` 指向的实际存储位置
+- `pets/bubuyier-ref/source/` 与 `states/`：历史备份，不参与运行时动作选择
 - `linux/`：Linux 桌面、CLI 与 VS Code 启动入口
 - `windows/`：Windows 桌面、CLI 与 VS Code 启动入口
 - `install.ps1`、`linux.sh`：仅安装宠物包到 Codex 配置目录

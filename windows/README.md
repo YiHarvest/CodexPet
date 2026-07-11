@@ -17,3 +17,13 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\windows\install-desktop-sh
 VS Code：将 `windows\vscode\tasks.json` 复制或合并到
 `.vscode\tasks.json`，然后运行 `Tasks: Run Task`，选择 `Codex Pet: Show`
 或 `Codex Pet: Hide`。
+
+## 鼠标动作
+
+| 操作 | 动作 |
+| --- | --- |
+| 待机 | 循环播放 `spritesheet.png` 第 1 行的笑脸动画 |
+| 水平 / 垂直拖动 | 分别播放第 2 / 3 行移动动画 |
+| 左键单击 | 轮流播放第 5–9 行的所有表情和互动 |
+| 右键单击 | 播放第 4 行的抱一抱 |
+| 中键单击 | 切换到下一种表情和互动 |

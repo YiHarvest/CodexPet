@@ -24,8 +24,6 @@ COLUMNS = 8
 ROWS = 11
 # 每帧播放间隔（毫秒）
 FRAME_MS = 140
-# The last two rows are static padding in the distributed sheet.  Every real
-# animation lives in rows 0--8 and is played directly from spritesheet.png.
 FRAME_COUNTS = {0: 6, 1: 8, 2: 8, 3: 4, 4: 5, 5: 8, 6: 6, 7: 6, 8: 6}
 IDLE_ROW = 0
 HORIZONTAL_MOVE_ROW = 1
@@ -34,6 +32,8 @@ HUG_ROW = 3
 # These are deliberately cycled on ordinary clicks so that every supplied
 # expression/action is available without hidden keyboard-only bindings.
 CLICK_ACTION_ROWS = (4, 5, 6, 7, 8)
+LOOK_ROW_START = 9
+LOOK_FRAME_COUNT = 16
 
 
 class DesktopPet(Gtk.Window):
@@ -85,9 +85,15 @@ class DesktopPet(Gtk.Window):
         self.motion_row = HORIZONTAL_MOVE_ROW
         self.mirror_motion = False
         self.click_action_index = 0
+        self.look_index = 0
         self.dragging = False
         self.did_drag = False
         self.activity_running = False
+        # Keep the supplied sleeping animation as an optional interaction. It
+        # is never used for idle, which always comes from spritesheet.png.
+        self.sleep_animation = GdkPixbuf.PixbufAnimation.new_from_file(str(pet_dir / "8.webp"))
+        self.sleep_animation_iter = None
+        self.sleep_running = False
         self.drag_x = 0
         self.drag_y = 0
 
@@ -181,7 +187,18 @@ class DesktopPet(Gtk.Window):
         )
         if self.mirror_motion:
             source = source.flip(True)
-        self._set_normalized_frame(source)
+        if self.motion_row == HUG_ROW:
+            # The hug cells already fill the canonical 192×208 frame. Cropping
+            # their alpha bounds made the characters look vertically squashed.
+            self._set_exact_frame(source)
+        else:
+            self._set_normalized_frame(source)
+
+    def _set_exact_frame(self, source: GdkPixbuf.Pixbuf) -> None:
+        self.image.set_from_pixbuf(
+            source.scale_simple(self.output_width, self.output_height, GdkPixbuf.InterpType.BILINEAR)
+        )
+        self.queue_draw()
 
     def _set_normalized_frame(self, source: GdkPixbuf.Pixbuf) -> None:
         """Draw every action at one fixed baseline without distorting it.
@@ -234,7 +251,7 @@ class DesktopPet(Gtk.Window):
     def _advance_motion(self) -> bool:
         if not self.dragging:
             return False
-            self.motion_frame = (self.motion_frame + 1) % FRAME_COUNTS[self.motion_row]
+        self.motion_frame = (self.motion_frame + 1) % FRAME_COUNTS[self.motion_row]
         self._render_motion()
         return True
 
@@ -248,7 +265,7 @@ class DesktopPet(Gtk.Window):
         return True
 
     def _start_activity(self, row: int) -> None:
-        if self.dragging:
+        if self.dragging or self.activity_running:
             return
         self.motion_row = row
         self.mirror_motion = False
@@ -256,6 +273,56 @@ class DesktopPet(Gtk.Window):
         self.activity_running = True
         self._render_motion()
         GLib.timeout_add(FRAME_MS, self._advance_activity)
+
+    def _start_sleep(self) -> None:
+        """Play the supplied 8.webp sleep animation once, then resume smiling idle."""
+        if self.dragging or self.activity_running:
+            return
+        self.activity_running = True
+        self.sleep_running = True
+        self.sleep_animation_iter = self.sleep_animation.get_iter(None)
+        self._set_normalized_frame(self.sleep_animation_iter.get_pixbuf())
+        GLib.timeout_add(50, self._advance_sleep)
+        GLib.timeout_add(2600, self._finish_sleep)
+
+    def _advance_sleep(self) -> bool:
+        if not self.sleep_running or self.sleep_animation_iter is None:
+            return False
+        self.sleep_animation_iter.advance(None)
+        self._set_normalized_frame(self.sleep_animation_iter.get_pixbuf())
+        return True
+
+    def _finish_sleep(self) -> bool:
+        self.sleep_running = False
+        self.sleep_animation_iter = None
+        self.activity_running = False
+        self._render_idle()
+        return False
+
+    def _start_look(self) -> None:
+        """Show one of the 16 directional-look cells in PNG rows 9 and 10."""
+        if self.dragging or self.activity_running:
+            return
+        self.motion_row = LOOK_ROW_START + self.look_index // COLUMNS
+        self.motion_frame = self.look_index % COLUMNS
+        self.look_index = (self.look_index + 1) % LOOK_FRAME_COUNT
+        self.mirror_motion = False
+        self.activity_running = True
+        self._set_exact_frame(
+            GdkPixbuf.Pixbuf.new_subpixbuf(
+                self.idle_sheet,
+                self.motion_frame * self.frame_width,
+                self.motion_row * self.frame_height,
+                self.frame_width,
+                self.frame_height,
+            )
+        )
+        GLib.timeout_add(900, self._finish_look)
+
+    def _finish_look(self) -> bool:
+        self.activity_running = False
+        self._render_idle()
+        return False
 
     def _start_drag(self, _widget, event) -> bool:
         """记录鼠标按下时的坐标，开始拖拽。
@@ -267,13 +334,17 @@ class DesktopPet(Gtk.Window):
         Returns:
             True，表示事件已处理
         """
-        if event.button == 1:
+        if event.button == 1 and event.state & Gdk.ModifierType.SHIFT_MASK:
+            self._start_sleep()
+        elif event.button == 1 and not self.activity_running:
             self.drag_x, self.drag_y = event.x_root, event.y_root
             self.dragging = True
             self.did_drag = False
         elif event.button == 3 and not self.dragging:
             # Right-click is always the four-frame hug from the PNG sheet.
             self._start_activity(HUG_ROW)
+        elif event.button == 2 and event.state & Gdk.ModifierType.SHIFT_MASK:
+            self._start_look()
         elif event.button == 2 and not self.dragging:
             self._start_activity(CLICK_ACTION_ROWS[self.click_action_index])
             self.click_action_index = (self.click_action_index + 1) % len(CLICK_ACTION_ROWS)
@@ -281,6 +352,8 @@ class DesktopPet(Gtk.Window):
 
     def _stop_drag(self, _widget, event) -> bool:
         if event.button == 1:
+            if self.sleep_running or self.activity_running:
+                return True
             self.dragging = False
             if self.did_drag:
                 self._render_idle()
@@ -302,7 +375,7 @@ class DesktopPet(Gtk.Window):
         Returns:
             True，表示事件已处理
         """
-        if event.state & Gdk.ModifierType.BUTTON1_MASK:
+        if self.dragging and event.state & Gdk.ModifierType.BUTTON1_MASK:
             x, y = self.get_position()
             delta_x = event.x_root - self.drag_x
             delta_y = event.y_root - self.drag_y
@@ -337,7 +410,7 @@ def main() -> int:
     """
     parser = argparse.ArgumentParser(description="Show a Codex pet as a Linux desktop overlay.")
     parser.add_argument(
-        "--pet", type=Path, default=Path(__file__).resolve().parents[1] / "pets" / "bubuyier-ref" / "codex-v2"
+        "--pet", type=Path, default=Path(__file__).resolve().parents[1] / "bubuyier-ref"
     )
     parser.add_argument("--scale", type=float, default=0.75)
     args = parser.parse_args()
