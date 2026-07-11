@@ -133,12 +133,10 @@ class DesktopPet(Gtk.Window):
             Gdk.EventMask.BUTTON_PRESS_MASK
             | Gdk.EventMask.BUTTON_RELEASE_MASK
             | Gdk.EventMask.BUTTON1_MOTION_MASK
-            | Gdk.EventMask.ENTER_NOTIFY_MASK
         )
         self.connect("draw", self._clear_background)
         self.connect("button-press-event", self._start_drag)
         self.connect("button-release-event", self._stop_drag)
-        self.connect("enter-notify-event", self._start_waiting)
         self.connect("motion-notify-event", self._drag)
         self.connect("destroy", Gtk.main_quit)
         self._render_idle()
@@ -367,9 +365,6 @@ class DesktopPet(Gtk.Window):
                 self._start_activity(CLICK_ACTION_ROWS[self.click_action_index])
                 self.click_action_index = (self.click_action_index + 1) % len(CLICK_ACTION_ROWS)
         return True
-
-    def _start_waiting(self, _widget, _event) -> bool:
-        return False
 
     def _drag(self, _widget, event) -> bool:
         """处理鼠标拖拽移动窗口。
