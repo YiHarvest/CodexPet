@@ -2,7 +2,7 @@ $ErrorActionPreference = "Stop"
 
 $repoRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
 $petName = "bubuyier-ref"
-$sourceDir = Join-Path $repoRoot $petName
+$sourceDir = Join-Path $repoRoot "pets\$petName\codex-v2"
 $targetDir = Join-Path $HOME ".codex\pets\$petName"
 
 if (-not (Test-Path -LiteralPath $sourceDir)) {

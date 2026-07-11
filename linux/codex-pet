@@ -1,0 +1,79 @@
+#!/usr/bin/env bash
+# codex-pet - 桌面宠物管理脚本
+#
+# 用法:
+#   codex-pet show [--scale 缩放比例]   # 显示宠物
+#   codex-pet hide                      # 隐藏宠物
+#   codex-pet toggle                    # 切换显示/隐藏
+#   codex-pet status                    # 查看宠物状态
+#
+# 功能:
+#   通过 PID 文件管理桌面宠物进程的启动、停止和状态查询。
+#   使用 setsid 让宠物进程独立运行，避免被父进程终止时连带关闭。
+#
+# 文件:
+#   PID 文件位置: $XDG_RUNTIME_DIR/codex-pet.pid (通常在 /run/user/1000/)
+
+set -euo pipefail
+
+# 获取项目根目录的绝对路径
+ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+
+# 运行时目录，用于存放 PID 文件
+RUNTIME_DIR="${XDG_RUNTIME_DIR:-/tmp}"
+PID_FILE="$RUNTIME_DIR/codex-pet.pid"
+
+# 检查宠物进程是否正在运行
+is_running() {
+  [[ -f "$PID_FILE" ]] && kill -0 "$(<"$PID_FILE")" 2>/dev/null
+}
+
+# 显示桌面宠物
+show() {
+  # 如果已经在运行，提示用户
+  if is_running; then
+    echo "Codex Pet 已显示 (PID $(<"$PID_FILE"))。"
+    return
+  fi
+
+  # 清理旧的 PID 文件
+  rm -f "$PID_FILE"
+
+  # 使用 setsid 启动宠物进程，使其独立于当前进程组
+  # 这样即使父进程（如 VSCode 任务）结束，宠物也会继续运行
+  : >/tmp/codex-pet.log
+  nohup setsid python3 "$ROOT_DIR/linux/desktop_pet.py" "$@" </dev/null >/tmp/codex-pet.log 2>&1 &
+  echo $! >"$PID_FILE"
+
+  # 等待进程启动
+  sleep 0.2
+
+  # 检查启动是否成功
+  if ! is_running; then
+    rm -f "$PID_FILE"
+    echo "Codex Pet 启动失败。请查看 /tmp/codex-pet.log" >&2
+    return 1
+  fi
+
+  echo "Codex Pet 已显示。可用鼠标左键拖拽移动。"
+}
+
+# 隐藏桌面宠物
+hide() {
+  if is_running; then
+    kill "$(<"$PID_FILE")"
+    echo "Codex Pet 已隐藏。"
+  else
+    echo "Codex Pet 未运行。"
+  fi
+  rm -f "$PID_FILE"
+}
+
+# 根据命令参数执行对应操作
+case "${1:-show}" in
+  show) shift; show "$@" ;;       # 显示宠物，可传递额外参数（如 --scale）
+  hide) hide ;;                   # 隐藏宠物
+  toggle) if is_running; then hide; else show; fi ;;  # 切换显示状态
+  status) if is_running; then echo "visible (PID $(<"$PID_FILE"))"; else echo "hidden"; fi ;;  # 查询状态
+  *) echo "用法: $0 {show|hide|toggle|status} [--scale 缩放比例]" >&2; exit 2 ;;
+esac

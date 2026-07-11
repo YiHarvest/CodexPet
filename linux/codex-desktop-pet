@@ -1,0 +1,14 @@
+#!/usr/bin/env bash
+# codex-desktop-pet - 桌面应用启动入口
+#
+# 功能:
+#   作为 .desktop 启动器的入口脚本，调用 codex-pet 显示桌面宠物。
+#   与 CLI 共用同一个 overlay，因此无论 Codex Desktop 是否打开都能正常工作。
+
+set -euo pipefail
+
+# 获取脚本所在目录
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+# 调用 codex-pet 显示宠物，传递所有参数
+exec "$SCRIPT_DIR/codex-pet" show "$@"
