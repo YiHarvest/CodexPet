@@ -1,0 +1,28 @@
+#!/usr/bin/env bash
+# codex-with-pet - 启动 Codex CLI 并同时显示桌面宠物
+#
+# 用法:
+#   codex-with-pet [codex 参数...]
+#
+# 功能:
+#   1. 显示桌面宠物窗口（调用 codex-pet show）
+#   2. 运行 Codex CLI
+#   3. 退出时自动隐藏宠物（捕获 EXIT/INT/TERM 信号）
+#
+# 示例:
+#   codex-with-pet          # 启动 Codex 并显示宠物
+#   codex-with-pet --help   # 查看 Codex 帮助，宠物也会显示
+
+set -euo pipefail
+
+# 获取脚本所在目录的绝对路径
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+# 显示桌面宠物
+"$SCRIPT_DIR/codex-pet" show
+
+# 注册退出钩子：脚本结束时自动隐藏宠物
+trap '"$SCRIPT_DIR/codex-pet" hide' EXIT INT TERM
+
+# 运行 Codex CLI，传递所有命令行参数
+codex "$@"

@@ -1,0 +1,16 @@
+# Codex Pet 桌面启动器配置文件模板
+#
+# 此文件为 FreeDesktop .desktop 文件模板，
+# install-desktop-launcher.sh 会将 __CODEX_PET_ROOT__ 替换为实际路径后安装。
+#
+# 安装位置：~/.local/share/applications/codex-pet.desktop
+# 安装后可在应用菜单中搜索 "Codex Pet" 启动桌面宠物。
+
+[Desktop Entry]
+Type=Application
+Name=Codex Pet
+Comment=显示 BubuYier Codex 桌面宠物
+Exec=__CODEX_PET_ROOT__/linux/codex-desktop-pet
+Icon=__CODEX_PET_ROOT__/pets/bubuyier-ref/codex-v2/spritesheet.png
+Terminal=false
+Categories=Utility;Development;

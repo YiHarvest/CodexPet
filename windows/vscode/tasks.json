@@ -1,0 +1,33 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "Codex Pet: Show",
+      "type": "shell",
+      "command": "powershell.exe",
+      "args": [
+        "-NoProfile",
+        "-ExecutionPolicy",
+        "Bypass",
+        "-File",
+        "${workspaceFolder}\\windows\\codex-pet.ps1",
+        "show"
+      ],
+      "problemMatcher": []
+    },
+    {
+      "label": "Codex Pet: Hide",
+      "type": "shell",
+      "command": "powershell.exe",
+      "args": [
+        "-NoProfile",
+        "-ExecutionPolicy",
+        "Bypass",
+        "-File",
+        "${workspaceFolder}\\windows\\codex-pet.ps1",
+        "hide"
+      ],
+      "problemMatcher": []
+    }
+  ]
+}

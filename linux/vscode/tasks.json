@@ -1,0 +1,19 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "Codex Pet: Show",
+      "type": "shell",
+      "command": "${workspaceFolder}/linux/codex-pet",
+      "args": ["show"],
+      "problemMatcher": []
+    },
+    {
+      "label": "Codex Pet: Hide",
+      "type": "shell",
+      "command": "${workspaceFolder}/linux/codex-pet",
+      "args": ["hide"],
+      "problemMatcher": []
+    }
+  ]
+}
