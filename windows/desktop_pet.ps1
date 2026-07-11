@@ -1,7 +1,6 @@
 param(
     [ValidateRange(0.25, 2.0)]
-    [double]$Scale = 0.75,
-    [switch]$Animate
+    [double]$Scale = 0.75
 )
 
 $ErrorActionPreference = 'Stop'
@@ -111,8 +110,6 @@ $startSleep = {
     & $renderSleepFrame
 }
 
-# Animate by default: row 0 is the smiling idle loop.  The -Animate switch is
-# retained for backwards-compatible invocations but no longer gates animation.
 $timer = [Windows.Threading.DispatcherTimer]::new()
 $timer.Interval = [TimeSpan]::FromMilliseconds(140)
 $timer.Add_Tick({
